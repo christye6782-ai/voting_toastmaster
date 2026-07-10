@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toastmasters Voting System</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-50 font-sans min-h-screen text-gray-800">
+
+    <div class="max-w-5xl mx-auto p-6">
+        <header class="text-center mb-8 bg-blue-600 text-white p-6 rounded-2xl shadow-md">
+            <h1 class="text-3xl font-bold tracking-wide">Awards Voting Dashboard</h1>
+            <p class="text-blue-100 mt-2">Cast your votes for the meeting's best performers</p>
+            <div id="poll-status-badge" class="inline-block mt-3 px-4 py-1 rounded-full text-xs font-semibold bg-yellow-400 text-gray-900">
+                Status: Loading...
+            </div>
+        </header>
+
+        <section id="setup-view" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+            <h2 class="text-xl font-bold mb-4 text-gray-700">Step 1: Admin Nominations Setup</h2>
+            <p class="text-sm text-gray-500 mb-4">Enter the names of the speakers/evaluators participating today. Put each name on a new line.</p>
+            <textarea id="nominee-names" rows="6" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="John Doe&#10;Jane Smith&#10;Alex Jones"></textarea>
+            <button onclick="startPolling()" class="mt-4 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-6 rounded-lg transition shadow-sm">
+                Start Polling & Open Voting
+            </button>
+        </section>
+
+        <section id="voting-view" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+            <h2 class="text-xl font-bold mb-2 text-gray-700">Cast Your Ballot</h2>
+            <p class="text-sm text-gray-500 mb-6">Select exactly one nominee for each category, then click submit.</p>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100 text-gray-700 text-xs uppercase tracking-wider">
+                            <th class="p-4 border-b border-gray-200">Nominee Name</th>
+                            <th class="p-4 border-b border-gray-200 text-center text-blue-700 font-bold">Best Speaker</th>
+                            <th class="p-4 border-b border-gray-200 text-center text-green-700 font-bold">Best Evaluator <br><span class="text-[10px]">Table Topics</span></th>
+                            <th class="p-4 border-b border-gray-200 text-center text-purple-700 font-bold">Best Evaluator <br><span class="text-[10px]">International Speech</span></th>
+                            <th class="p-4 border-b border-gray-200 text-center text-orange-700 font-bold">Best Table Topic <br><span class="text-[10px]">Speaker</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="voting-rows" class="divide-y divide-gray-200 text-sm">
+                        </tbody>
+                </table>
+            </div>
+            
+            <div class="mt-6 flex justify-end">
+                <button onclick="submitVote()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-xl transition shadow-md">
+                    Submit Ballot
+                </button>
+            </div>
+        </section>
+
+        <section id="ended-view" class="hidden bg-white p-8 rounded-2xl shadow-sm text-center border border-gray-100 mb-8">
+            <div class="text-5xl mb-4">🔒</div>
+            <h2 class="text-2xl font-bold text-gray-700 mb-2">Polling Has Closed</h2>
+            <p class="text-gray-500">The administrator has ended the voting window. Please wait for the official results to be published.</p>
+        </section>
+
+        <section id="results-view" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-8">🏆 Official Election Results 🏆</h2>
+            <div id="winners-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                </div>
+        </section>
+
+        <hr class="my-8 border-gray-200">
+        <section class="bg-gray-800 text-gray-200 p-6 rounded-2xl shadow-inner">
+            <h3 class="text-lg font-semibold mb-4 text-amber-400 flex items-center gap-2">
+                ⚙️ Admin Master Control Panel
+            </h3>
+            <div class="flex flex-wrap gap-4 items-center">
+                <button onclick="endPolling()" id="btn-end-poll" class="bg-yellow-600 hover:bg-yellow-700 text-white text-sm py-2 px-4 rounded-lg transition disabled:opacity-50">
+                    End Polling (Close Voting)
+                </button>
+                <button onclick="publishResults()" id="btn-publish-results" class="bg-purple-600 hover:bg-purple-700 text-white text-sm py-2 px-4 rounded-lg transition disabled:opacity-50">
+                    Publish Results to Webpage
+                </button>
+                <button onclick="resetSystem()" class="bg-red-600 hover:bg-red-700 text-white text-sm py-2 px-4 rounded-lg transition ml-auto">
+                    Reset System (Clear All Data)
+                </button>
+            </div>
+            <p class="text-xs text-gray-400 mt-4 italic">Note: As the admin, you can see all views on this screen for testing purposes. In production, users will only see what matches the current status.</p>
+        </section>
+    </div>
+
+    <script>
+        // Constants for the 4 explicit columns/categories required
+        const CATEGORIES = [
+            "BEST SPEAKER",
+            "BEST EVALUATOR TABLE TOPICS",
+            "BEST EVALUATOR INTERNATIONAL SPEECH",
+            "BEST TABLE TOPIC SPEAKER"
+        ];
+
+        // State Structure
+        let state = {
+            status: 'setup', // setup, active, ended, published
+            names: [],
+            votes: {} // Structure: { category: { name: count } }
+        };
+
+        // Initialize App on Page Load
+        window.onload = function() {
+            const savedState = localStorage.getItem('tm_voting_state');
+            if (savedState) {
+                state = JSON.parse(savedState);
+            } else {
+                resetVoteTallies();
+            }
+            render();
+        };
+
+        function saveState() {
+            localStorage.setItem('tm_voting_state', JSON.stringify(state));
+        }
+
+        function resetVoteTallies() {
+            state.votes = {};
+            CATEGORIES.forEach(cat => {
+                state.votes[cat] = {};
+            });
+        }
+
+        // Action: Admin starts the poll
+        function startPolling() {
+            const lines = document.getElementById('nominee-names').value.split('\n');
+            const cleanNames = lines.map(n => n.trim()).filter(n => n.length > 0);
+
+            if (cleanNames.length === 0) {
+                alert("Please input at least one name to start the poll.");
+                return;
+            }
+
+            state.names = cleanNames;
+            resetVoteTallies();
+            
+            // Seed base counts to zero
+            CATEGORIES.forEach(cat => {
+                state.names.forEach(name => {
+                    state.votes[cat][name] = 0;
+                });
+            });
+
+            state.status = 'active';
+            saveState();
+            render();
+        }
+
+        // Action: Voter submits their ballot
+        function submitVote() {
+            let submission = {};
+
+            // Validate that one selection is made for each category
+            for (let i = 0; i < CATEGORIES.length; i++) {
+                const cat = CATEGORIES[i];
+                const selected = document.querySelector(`input[name="cat_${i}"]:checked`);
+                if (!selected) {
+                    alert(`Please select a winner for: ${cat}`);
+                    return;
+                }
+                submission[cat] = selected.value;
+            }
+
+            // Register Votes
+            CATEGORIES.forEach((cat, i) => {
+                const votedName = submission[cat];
+                state.votes[cat][votedName] = (state.votes[cat][votedName] || 0) + 1;
+            });
+
+            saveState();
+            alert("Your votes have been successfully counted! Clearing ballot for next user.");
+            
+            // Clear current selections on screen
+            CATEGORIES.forEach((_, i) => {
+                const checked = document.querySelector(`input[name="cat_${i}"]:checked`);
+                if (checked) checked.checked = false;
+            });
+        }
+
+        // Action: Admin closes voting window
+        function endPolling() {
+            if (state.status !== 'active') {
+                alert("Polling must be active before you can end it.");
+                return;
+            }
+            state.status = 'ended';
+            saveState();
+            render();
+        }
+
+        // Action: Admin publishes results to screen
+        function publishResults() {
+            if (state.status !== 'ended' && state.status !== 'active') {
+                alert("There are no completed polls to publish.");
+                return;
+            }
+            state.status = 'published';
+            saveState();
+            render();
+        }
+
+        // Action: Full Reset
+        function resetSystem() {
+            if (confirm("Are you sure you want to clear all data and restart? All current votes will be permanently lost.")) {
+                state = {
+                    status: 'setup',
+                    names: [],
+                    votes: {}
+                };
+                resetVoteTallies();
+                document.getElementById('nominee-names').value = '';
+                saveState();
+                render();
+            }
+        }
+
+        // Render function handles UI layout changes based on state machine
+        function render() {
+            // Update Status Badge
+            const badge = document.getElementById('poll-status-badge');
+            badge.textContent = `Status: ${state.status.toUpperCase()}`;
+            
+            // Style changes for badge status
+            badge.className = "inline-block mt-3 px-4 py-1 rounded-full text-xs font-semibold ";
+            if (state.status === 'setup') badge.className += "bg-gray-300 text-gray-700";
+            if (state.status === 'active') badge.className += "bg-green-400 text-green-950 animate-pulse";
+            if (state.status === 'ended') badge.className += "bg-yellow-400 text-yellow-950";
+            if (state.status === 'published') badge.className += "bg-purple-500 text-white";
+
+            // Hide all main view sections initially
+            document.getElementById('setup-view').classList.add('hidden');
+            document.getElementById('voting-view').classList.add('hidden');
+            document.getElementById('ended-view').classList.add('hidden');
+            document.getElementById('results-view').classList.add('hidden');
+
+            // Enable/Disable admin buttons appropriately
+            document.getElementById('btn-end-poll').disabled = (state.status !== 'active');
+            document.getElementById('btn-publish-results').disabled = (state.status !== 'ended');
+
+            // Show current step view
+            if (state.status === 'setup') {
+                document.getElementById('setup-view').classList.remove('hidden');
+            } 
+            else if (state.status === 'active') {
+                document.getElementById('voting-view').classList.remove('hidden');
+                buildVotingTable();
+            } 
+            else if (state.status === 'ended') {
+                document.getElementById('ended-view').classList.remove('hidden');
+            } 
+            else if (state.status === 'published') {
+                document.getElementById('results-view').classList.remove('hidden');
+                buildWinnersGrid();
+            }
+        }
+
+        // Dynamically build out the matrix grid table
+        function buildVotingTable() {
+            const tbody = document.getElementById('voting-rows');
+            tbody.innerHTML = '';
+
+            state.names.forEach(name => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 transition";
+
+                // Name Column
+                let html = `<td class="p-4 font-medium text-gray-900 border-b border-gray-100">${name}</td>`;
+
+                // 4 Category Radio Option Columns
+                CATEGORIES.forEach((cat, catIndex) => {
+                    html += `
+                        <td class="p-4 text-center border-b border-gray-100">
+                            <input type="radio" name="cat_${catIndex}" value="${name}" 
+                                class="w-5 h-5 text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer">
+                        </td>
+                    `;
+                });
+
+                tr.innerHTML = html;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Calculate maximum data values and render winning webpage elements
+        function buildWinnersGrid() {
+            const grid = document.getElementById('winners-grid');
+            grid.innerHTML = '';
+
+            // Color scheme map to match column styles
+            const styles = [
+                { border: 'border-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
+                { border: 'border-green-500', text: 'text-green-700', bg: 'bg-green-50' },
+                { border: 'border-purple-500', text: 'text-purple-700', bg: 'bg-purple-50' },
+                { border: 'border-orange-500', text: 'text-orange-700', bg: 'bg-orange-50' }
+            ];
+
+            CATEGORIES.forEach((cat, index) => {
+                const catVotes = state.votes[cat] || {};
+                let maxVotes = -1;
+                let winners = [];
+
+                // Determine Winner logic (Supports accounting for ties)
+                for (const [name, count] of Object.entries(catVotes)) {
+                    if (count > maxVotes) {
+                        maxVotes = count;
+                        winners = [name];
+                    } else if (count === maxVotes && maxVotes > 0) {
+                        winners.push(name);
+                    }
+                }
+
+                let winnerDisplay = "No votes cast";
+                if (maxVotes > 0) {
+                    winnerDisplay = winners.join(' & ');
+                }
+
+                const style = styles[index];
+
+                const card = document.createElement('div');
+                card.className = `p-6 rounded-2xl border-2 ${style.border} ${style.bg} shadow-sm transition flex flex-col justify-between`;
+                card.innerHTML = `
+                    <div>
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Category</span>
+                        <h3 class="text-lg font-bold ${style.text} mt-0.5 mb-4">${cat}</h3>
+                    </div>
+                    <div class="mt-2">
+                        <span class="text-xs font-semibold text-gray-500 block">Winner(s):</span>
+                        <div class="text-2xl font-black text-gray-800 tracking-tight mt-1">
+                            🥇 ${winnerDisplay}
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2 font-medium">Total registered votes: ${maxVotes > -1 ? maxVotes : 0}</p>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+    </script>
+</body>
+</html>
